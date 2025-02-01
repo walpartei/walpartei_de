@@ -9,12 +9,13 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.48.1",
+    "cookie-parser": "latest",
+    "express-rate-limit": "latest",
+    "jsonwebtoken": "latest",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest",
-    "cookie-parser": "latest",
-    "jsonwebtoken": "latest",
-    "express-rate-limit": "latest"
+    "react-dom": "latest"
   },
   "devDependencies": {
     "autoprefixer": "latest",
