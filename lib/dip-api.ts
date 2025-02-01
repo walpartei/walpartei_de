@@ -41,6 +41,9 @@ export async function fetchDIPProposals(
       apiKeyPresent: !!DIP_API_KEY,
     });
 
+    // Calculate pagination parameters
+    const start = (page - 1) * pageSize;
+
     // We're interested in "Gesetzentwurf" type documents
     const response = await axios.get<DIPResponse<DIPVorgangsposition>>(
       `${DIP_API_BASE}/vorgangsposition`,
@@ -52,7 +55,11 @@ export async function fetchDIPProposals(
           vorgangstyp: 'Gesetzentwurf',
           sort: 'datum desc',
           rows: pageSize,
-          start: (page - 1) * pageSize,
+          start: start,
+          cursor: '*', // Reset cursor to ensure consistent pagination
+        },
+        headers: {
+          'Accept': 'application/json',
         },
       }
     );
@@ -60,9 +67,14 @@ export async function fetchDIPProposals(
     console.log('DIP API Response:', {
       numFound: response.data.numFound,
       documentsCount: response.data.documents.length,
+      requestedSize: pageSize,
+      actualSize: response.data.documents.length,
     });
 
-    const proposals: Proposal[] = response.data.documents.map((doc) => ({
+    // Ensure we only take the requested number of items
+    const documents = response.data.documents.slice(0, pageSize);
+
+    const proposals: Proposal[] = documents.map((doc) => ({
       id: doc.id,
       title: doc.titel,
       summary: doc.abstrakt || 'Keine Zusammenfassung verfügbar',
@@ -109,6 +121,9 @@ export async function fetchDIPProposalById(id: string): Promise<Proposal | null>
           apikey: DIP_API_KEY,
           f: 'json',
           format: 'json',
+        },
+        headers: {
+          'Accept': 'application/json',
         },
       }
     );
