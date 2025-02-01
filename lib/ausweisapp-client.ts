@@ -22,7 +22,7 @@ export class AusweisAppClient {
       try {
         this.ws = new WebSocket(this.url);
 
-        this.ws.on('open', async () => {
+        this.ws.onopen = async () => {
           console.log('Connected to AusweisApp');
           
           // Check if we're in development mode
@@ -37,11 +37,11 @@ export class AusweisAppClient {
           }
           
           resolve();
-        });
+        };
 
-        this.ws.on('message', (data: string) => {
+        this.ws.onmessage = (event) => {
           try {
-            const message = JSON.parse(data) as AusweisMessage;
+            const message = JSON.parse(event.data) as AusweisMessage;
             console.log('Received message:', message);
             
             // Handle development mode check
@@ -55,17 +55,17 @@ export class AusweisAppClient {
           } catch (error) {
             console.error('Error parsing message:', error);
           }
-        });
+        };
 
-        this.ws.on('error', (error) => {
+        this.ws.onerror = (error) => {
           console.error('WebSocket error:', error);
           reject(error);
-        });
+        };
 
-        this.ws.on('close', () => {
+        this.ws.onclose = () => {
           console.log('Disconnected from AusweisApp');
           this.ws = null;
-        });
+        };
       } catch (error) {
         reject(error);
       }
@@ -82,13 +82,12 @@ export class AusweisAppClient {
     }
 
     return new Promise((resolve, reject) => {
-      this.ws!.send(JSON.stringify(message), (error) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
+      try {
+        this.ws!.send(JSON.stringify(message));
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 

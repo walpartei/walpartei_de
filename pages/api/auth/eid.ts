@@ -1,61 +1,51 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { AusweisAppClient } from '@/lib/ausweisapp-client';
 
 // In production, this would come from your eID service provider
-const TEST_TC_TOKEN_URL = process.env.NEXT_PUBLIC_TC_TOKEN_URL || 'https://test.governikus-eid.de/AusweisAuskunft/WebServiceRequesterServlet';
+const TEST_TC_TOKEN_URL = process.env.NEXT_PUBLIC_TC_TOKEN_URL;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  try {
-    const client = new AusweisAppClient();
-    
-    // Connect to AusweisApp
-    await client.connect();
-
-    // Start authentication process
-    await client.startAuth(TEST_TC_TOKEN_URL);
-
-    // Set up message handler
-    let authResult: any = null;
-    
-    client.onMessage((msg) => {
-      console.log('Received message:', msg);
-      
-      switch (msg.msg) {
-        case 'AUTH':
-          if (msg.result && msg.result.major === 'http://www.bsi.bund.de/ecard/api/1.1/resultmajor#ok') {
-            authResult = msg.result;
-          }
-          break;
-          
-        case 'ACCESS_RIGHTS':
-          // Here we would handle required access rights
-          break;
-          
-        case 'ENTER_PIN':
-          // In a real implementation, this would be handled by the AusweisApp UI
-          break;
-          
-        case 'AUTH_FAILED':
-          console.error('Authentication failed:', msg);
-          break;
-      }
+  // For development/testing, we'll return a mock success response
+  // In production, this would integrate with your eID service provider's API
+  if (process.env.NEXT_PUBLIC_EID_TEST_MODE === 'true') {
+    return res.status(200).json({
+      success: true,
+      data: {
+        auth: {
+          major: 'http://www.bsi.bund.de/ecard/api/1.1/resultmajor#ok',
+          description: 'Test authentication successful',
+        },
+        claims: {
+          given_names: 'ERIKA',
+          family_names: 'MUSTERMANN',
+          date_of_birth: '1964-08-12',
+          place_of_birth: 'BERLIN',
+          address: 'HEIDESTRASSE 17\n51147 KÖLN',
+        },
+      },
     });
+  }
 
-    // For demo purposes, we'll wait a bit for the auth to complete
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    client.disconnect();
+  try {
+    // In production, this would:
+    // 1. Generate a TC token from your eID service provider
+    // 2. Start an authentication session
+    // 3. Return the TC token URL to the client
+    // 4. Client-side code would then handle the actual eID flow with AusweisApp2
 
-    if (authResult) {
-      // In production, you would create a session here
-      return res.status(200).json({ success: true, data: authResult });
-    } else {
-      return res.status(401).json({ error: 'Authentication failed' });
+    if (!TEST_TC_TOKEN_URL) {
+      throw new Error('TC_TOKEN_URL is not configured');
     }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        tcTokenURL: TEST_TC_TOKEN_URL,
+      },
+    });
   } catch (error) {
     console.error('eID authentication error:', error);
     return res.status(500).json({ error: 'Internal server error' });

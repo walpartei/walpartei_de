@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { AusweisAppClient } from '@/lib/ausweisapp-client';
 
 interface StatusMessage {
   type: 'info' | 'error' | 'success';
@@ -12,12 +13,77 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<StatusMessage | null>(null);
   const isTestMode = process.env.NEXT_PUBLIC_EID_TEST_MODE === 'true';
+  const [client, setClient] = useState<AusweisAppClient | null>(null);
+
+  useEffect(() => {
+    const ausweisClient = new AusweisAppClient();
+    setClient(ausweisClient);
+
+    return () => {
+      if (ausweisClient) {
+        ausweisClient.disconnect();
+      }
+    };
+  }, []);
 
   const startEidAuth = async () => {
+    if (!client) {
+      setStatus({
+        type: 'error',
+        message: 'AusweisApp client not initialized',
+      });
+      return;
+    }
+
     setIsLoading(true);
     setStatus({ type: 'info', message: 'Connecting to AusweisApp...' });
 
     try {
+      // Connect to AusweisApp
+      await client.connect();
+      setStatus({ type: 'info', message: 'Connected to AusweisApp' });
+
+      // Set up message handlers
+      client.onMessage((msg) => {
+        console.log('Received message:', msg);
+        
+        switch (msg.msg) {
+          case 'ACCESS_RIGHTS':
+            setStatus({
+              type: 'info',
+              message: 'Please check the requested data access in AusweisApp',
+            });
+            break;
+            
+          case 'ENTER_PIN':
+            setStatus({
+              type: 'info',
+              message: 'Please enter your PIN in AusweisApp',
+            });
+            break;
+            
+          case 'AUTH':
+            if (msg.result?.major === 'http://www.bsi.bund.de/ecard/api/1.1/resultmajor#ok') {
+              setStatus({
+                type: 'success',
+                message: 'Authentication successful!',
+              });
+              setTimeout(() => {
+                router.push('/');
+              }, 1000);
+            }
+            break;
+            
+          case 'AUTH_FAILED':
+            setStatus({
+              type: 'error',
+              message: 'Authentication failed. Please try again.',
+            });
+            break;
+        }
+      });
+
+      // Get TC token URL from backend
       const response = await fetch('/api/auth/eid', {
         method: 'POST',
         headers: {
@@ -31,17 +97,24 @@ export default function LoginPage() {
         throw new Error(data.error || 'Authentication failed');
       }
 
-      setStatus({ type: 'success', message: 'Authentication successful!' });
-      
-      // On successful auth, redirect to home
-      setTimeout(() => {
-        router.push('/');
-      }, 1000);
+      if (isTestMode && data.data.auth) {
+        // In test mode, we get a mock response
+        setStatus({
+          type: 'success',
+          message: 'Test authentication successful!',
+        });
+        setTimeout(() => {
+          router.push('/');
+        }, 1000);
+      } else {
+        // Start the actual authentication
+        await client.startAuth();
+      }
     } catch (error) {
       console.error('Login error:', error);
       setStatus({
         type: 'error',
-        message: error instanceof Error ? error.message : 'Authentication failed'
+        message: error instanceof Error ? error.message : 'Authentication failed',
       });
     } finally {
       setIsLoading(false);
