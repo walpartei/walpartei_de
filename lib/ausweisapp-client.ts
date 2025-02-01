@@ -1,9 +1,17 @@
-import WebSocket from 'ws';
-
 export interface AusweisMessage {
   msg: string;
   [key: string]: any;
 }
+
+// Use the browser's WebSocket
+declare const WebSocket: {
+  new (url: string): WebSocket;
+  prototype: WebSocket;
+  readonly CONNECTING: 0;
+  readonly OPEN: 1;
+  readonly CLOSING: 2;
+  readonly CLOSED: 3;
+};
 
 export class AusweisAppClient {
   private ws: WebSocket | null = null;
