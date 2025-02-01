@@ -30,10 +30,17 @@ export async function fetchDIPProposals(
   pageSize: number = 10
 ): Promise<{ proposals: Proposal[]; total: number }> {
   if (!DIP_API_KEY) {
+    console.error('DIP_API_KEY is not configured');
     throw new Error('DIP_API_KEY is not configured');
   }
 
   try {
+    console.log('Fetching proposals from DIP API:', {
+      page,
+      pageSize,
+      apiKeyPresent: !!DIP_API_KEY,
+    });
+
     // We're interested in "Gesetzentwurf" type documents
     const response = await axios.get<DIPResponse<DIPVorgangsposition>>(
       `${DIP_API_BASE}/vorgangsposition`,
@@ -50,13 +57,18 @@ export async function fetchDIPProposals(
       }
     );
 
+    console.log('DIP API Response:', {
+      numFound: response.data.numFound,
+      documentsCount: response.data.documents.length,
+    });
+
     const proposals: Proposal[] = response.data.documents.map((doc) => ({
       id: doc.id,
       title: doc.titel,
       summary: doc.abstrakt || 'Keine Zusammenfassung verfügbar',
       introducedDate: doc.datum,
       createdAt: new Date().toISOString(),
-      pdfUrl: doc.drucksachen?.[0]?.url,
+      pdfUrl: doc.drucksachen?.[0]?.url || null,
       voteCount: {
         yes: 0,
         no: 0,
@@ -68,17 +80,28 @@ export async function fetchDIPProposals(
       total: response.data.numFound,
     };
   } catch (error) {
-    console.error('Error fetching DIP proposals:', error);
+    if (axios.isAxiosError(error)) {
+      console.error('DIP API Error:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      });
+    } else {
+      console.error('Error fetching DIP proposals:', error);
+    }
     throw new Error('Failed to fetch proposals from DIP API');
   }
 }
 
 export async function fetchDIPProposalById(id: string): Promise<Proposal | null> {
   if (!DIP_API_KEY) {
+    console.error('DIP_API_KEY is not configured');
     throw new Error('DIP_API_KEY is not configured');
   }
 
   try {
+    console.log('Fetching proposal by ID:', { id, apiKeyPresent: !!DIP_API_KEY });
+
     const response = await axios.get<DIPVorgangsposition>(
       `${DIP_API_BASE}/vorgangsposition/${id}`,
       {
@@ -90,6 +113,11 @@ export async function fetchDIPProposalById(id: string): Promise<Proposal | null>
       }
     );
 
+    console.log('DIP API Response for single proposal:', {
+      id: response.data.id,
+      title: response.data.titel,
+    });
+
     const doc = response.data;
     return {
       id: doc.id,
@@ -97,14 +125,22 @@ export async function fetchDIPProposalById(id: string): Promise<Proposal | null>
       summary: doc.abstrakt || 'Keine Zusammenfassung verfügbar',
       introducedDate: doc.datum,
       createdAt: new Date().toISOString(),
-      pdfUrl: doc.drucksachen?.[0]?.url,
+      pdfUrl: doc.drucksachen?.[0]?.url || null,
       voteCount: {
         yes: 0,
         no: 0,
       },
     };
   } catch (error) {
-    console.error('Error fetching DIP proposal:', error);
+    if (axios.isAxiosError(error)) {
+      console.error('DIP API Error:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      });
+    } else {
+      console.error('Error fetching DIP proposal:', error);
+    }
     return null;
   }
 }

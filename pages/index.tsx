@@ -50,12 +50,24 @@ export default function HomePage({ trendingProposals }: HomeProps) {
                   <div className="p-6">
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">{proposal.title}</h3>
                     <p className="text-sm text-gray-500 mb-4">
-                      Introduced on {new Date(proposal.introducedDate).toLocaleDateString()}
+                      Introduced on {new Date(proposal.introducedDate).toLocaleDateString('de-DE')}
                     </p>
                     <p className="text-sm text-gray-600 mb-4">{proposal.summary}</p>
-                    <div className="flex items-center text-sm text-gray-500">
-                      <span className="mr-4">Yes: {proposal.voteCount?.yes || 0}</span>
-                      <span>No: {proposal.voteCount?.no || 0}</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center text-sm text-gray-500">
+                        <span className="mr-4">Yes: {proposal.voteCount?.yes || 0}</span>
+                        <span>No: {proposal.voteCount?.no || 0}</span>
+                      </div>
+                      {proposal.pdfUrl && (
+                        <a
+                          href={proposal.pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                        >
+                          View Document →
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -69,13 +81,23 @@ export default function HomePage({ trendingProposals }: HomeProps) {
 }
 
 export const getStaticProps: GetStaticProps<HomeProps> = async () => {
-  const proposals = await fetchProposals();
-  
-  return {
-    props: {
-      trendingProposals: proposals,
-    },
-    // Revalidate every hour
-    revalidate: 3600,
-  };
+  try {
+    const { proposals } = await fetchProposals(1, 4); // Fetch 4 trending proposals
+    
+    return {
+      props: {
+        trendingProposals: proposals,
+      },
+      // Revalidate every hour
+      revalidate: 3600,
+    };
+  } catch (error) {
+    console.error('Error fetching trending proposals:', error);
+    return {
+      props: {
+        trendingProposals: [],
+      },
+      revalidate: 3600,
+    };
+  }
 };

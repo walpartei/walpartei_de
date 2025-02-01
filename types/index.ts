@@ -2,10 +2,10 @@ export interface Proposal {
   id: string;
   title: string;
   summary: string;
-  pdfUrl?: string;
+  pdfUrl: string | null;
   introducedDate: string;
   createdAt: string;
-  voteCount?: {
+  voteCount: {
     yes: number;
     no: number;
   };
