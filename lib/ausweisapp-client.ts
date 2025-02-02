@@ -26,25 +26,29 @@ export class AusweisAppClient {
   private isTestMode: boolean;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
-  private wsUrls: string[];
+  private urls: string[];
   private currentUrlIndex = 0;
 
   constructor() {
     this.isTestMode = process.env.NEXT_PUBLIC_EID_TEST_MODE === 'true';
     
-    // Define multiple URLs to try
-    const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    this.wsUrls = isSecure 
-      ? ['wss://127.0.0.1:24727/eID-Kernel', 'wss://localhost:24727/eID-Kernel']
-      : ['ws://localhost:24727/eID-Kernel', 'ws://127.0.0.1:24727/eID-Kernel'];
+    this.urls = this.getWebSocketUrls();
+    console.log('AusweisAppClient initialized with URLs:', this.urls);
+  }
 
-    // Override with environment variable if set
-    if (process.env.NEXT_PUBLIC_AUSWEISAPP_WS_URL) {
-      this.wsUrls = [process.env.NEXT_PUBLIC_AUSWEISAPP_WS_URL];
+  private getWebSocketUrls(): string[] {
+    const baseUrl = process.env.NEXT_PUBLIC_AUSWEISAPP_WS_URL || 'ws://127.0.0.1:24727/eID-Kernel';
+    
+    // In production (Vercel), always use ws:// for local connections
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && !window.location.hostname.includes('localhost')) {
+      return [
+        'ws://127.0.0.1:24727/eID-Kernel',
+        'ws://localhost:24727/eID-Kernel'
+      ];
     }
     
-    console.log('AusweisAppClient initialized with URLs:', this.wsUrls);
-    console.log('Test mode:', this.isTestMode);
+    // In development or if URL is explicitly set, use the configured URL
+    return [baseUrl];
   }
 
   private notifyStatusChange(status: ConnectionStatus) {
@@ -56,7 +60,7 @@ export class AusweisAppClient {
   }
 
   private getCurrentUrl(): string {
-    return this.wsUrls[this.currentUrlIndex];
+    return this.urls[this.currentUrlIndex];
   }
 
   private async cleanupExistingConnection(): Promise<void> {
@@ -81,7 +85,7 @@ export class AusweisAppClient {
     return new Promise((resolve, reject) => {
       const tryConnect = () => {
         const currentUrl = this.getCurrentUrl();
-        console.log(`Connecting to WebSocket (${this.currentUrlIndex + 1}/${this.wsUrls.length}):`, currentUrl);
+        console.log(`Connecting to WebSocket (${this.currentUrlIndex + 1}/${this.urls.length}):`, currentUrl);
         
         try {
           this.ws = new WebSocket(currentUrl);
@@ -93,7 +97,7 @@ export class AusweisAppClient {
               
               // Try next URL
               this.currentUrlIndex++;
-              if (this.currentUrlIndex < this.wsUrls.length) {
+              if (this.currentUrlIndex < this.urls.length) {
                 tryConnect();
               } else {
                 this.currentUrlIndex = 0;
