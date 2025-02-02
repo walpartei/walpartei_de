@@ -1,5 +1,17 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
+import type { Server as HTTPServer } from 'http';
+import type { Socket } from 'net';
+
+interface SocketServer extends HTTPServer {
+  ws?: boolean;
+}
+
+interface ResponseWithSocket extends NextApiResponse {
+  socket: Socket & {
+    server: SocketServer;
+  };
+}
 
 export const config = {
   api: {
@@ -80,10 +92,13 @@ const handleConnection = async (socket: WebSocket) => {
 };
 
 // Export the request handler
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: ResponseWithSocket
+) {
   if (req.method === 'GET') {
     try {
-      if (!res.socket?.server?.ws) {
+      if (!res.socket.server.ws) {
         // Set up WebSocket server
         const server = res.socket.server;
         server.ws = true;
