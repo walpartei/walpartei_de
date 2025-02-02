@@ -146,8 +146,15 @@ export class AusweisAppClient {
           };
           
           this.ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            this.handleMessage(msg);
+            try {
+              const message = JSON.parse(event.data) as AusweisMessage;
+              console.log('Received WebSocket message:', JSON.stringify(message, null, 2));
+              console.log('Received message:', message);
+              this.messageHandlers.forEach(handler => handler(message));
+            } catch (error) {
+              console.error('Error parsing WebSocket message:', error);
+              console.log('Raw message data:', event.data);
+            }
           };
         } catch (error) {
           console.error('Failed to create WebSocket:', error);
