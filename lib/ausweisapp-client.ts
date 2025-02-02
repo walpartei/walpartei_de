@@ -38,34 +38,24 @@ export class AusweisAppClient {
   }
 
   private getWebSocketUrls(): string[] {
-    // According to TR-03124-1, AusweisApp2 uses ws:// by default
-    // If we're on HTTPS, we need to inform the user about mixed content
-    const urls = [
+    // In production (HTTPS), use our secure WebSocket proxy
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+      const wsUrl = window.location.origin.replace('https://', 'wss://') + '/api/ausweisapp-proxy';
+      return [wsUrl];
+    }
+
+    // For local development (HTTP), connect directly
+    return [
       'ws://localhost:24727/eID-Kernel',
       'ws://127.0.0.1:24727/eID-Kernel'
     ];
-
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-      console.warn('Connecting to AusweisApp2 from HTTPS site - you may need to enable mixed content');
-    }
-
-    return urls;
   }
 
   private getConnectionInstructions(): string {
     let instructions = 'Could not connect to AusweisApp2. Please make sure:\n';
     instructions += '1. AusweisApp2 is running\n';
     instructions += '2. No other application is currently using AusweisApp2\n';
-    instructions += '3. There is no active workflow in AusweisApp2\n\n';
-
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-      instructions += 'Since you are connecting from a secure site (HTTPS), you need to:\n';
-      instructions += '1. Click the shield/lock icon in your browser\'s address bar\n';
-      instructions += '2. Allow insecure content from localhost\n';
-      instructions += '3. Reload the page\n\n';
-      instructions += 'This is necessary because AusweisApp2 uses an unencrypted WebSocket connection (ws://)';
-    }
-
+    instructions += '3. There is no active workflow in AusweisApp2\n';
     return instructions;
   }
 
