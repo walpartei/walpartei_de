@@ -34,16 +34,17 @@ export class AusweisAppClient {
     
     this.urls = this.getWebSocketUrls();
     console.log('AusweisAppClient initialized with URLs:', this.urls);
+    console.log('Test mode:', this.isTestMode);
   }
 
   private getWebSocketUrls(): string[] {
     const baseUrl = process.env.NEXT_PUBLIC_AUSWEISAPP_WS_URL || 'ws://127.0.0.1:24727/eID-Kernel';
     
-    // In production (Vercel), always use ws:// for local connections
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && !window.location.hostname.includes('localhost')) {
+    // If we're on HTTPS, we must use WSS
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
       return [
-        'ws://127.0.0.1:24727/eID-Kernel',
-        'ws://localhost:24727/eID-Kernel'
+        'wss://127.0.0.1:24727/eID-Kernel',
+        'wss://localhost:24727/eID-Kernel'
       ];
     }
     
@@ -85,87 +86,76 @@ export class AusweisAppClient {
     return new Promise((resolve, reject) => {
       const tryConnect = () => {
         const currentUrl = this.getCurrentUrl();
+        const isSecureConnection = currentUrl.startsWith('wss://');
         console.log(`Connecting to WebSocket (${this.currentUrlIndex + 1}/${this.urls.length}):`, currentUrl);
         
         try {
           this.ws = new WebSocket(currentUrl);
-
-          const connectionTimeout = setTimeout(() => {
-            if (this.ws?.readyState !== WebSocket.OPEN) {
-              console.log('Connection timeout, trying next URL...');
-              this.cleanupExistingConnection();
-              
-              // Try next URL
-              this.currentUrlIndex++;
-              if (this.currentUrlIndex < this.urls.length) {
-                tryConnect();
-              } else {
-                this.currentUrlIndex = 0;
-                const isSecure = currentUrl.startsWith('wss://');
-                const errorDetails = isSecure 
-                  ? 'Make sure AusweisApp2 has WebSocket TLS enabled in developer settings and the self-signed certificate is accepted.'
-                  : 'Make sure AusweisApp2 is running and developer mode is enabled.';
-                
-                const error = new Error('Could not connect to AusweisApp2');
-                this.notifyStatusChange({
-                  connected: false,
-                  error: 'Connection Failed',
-                  details: errorDetails
-                });
-                reject(error);
+          
+          // Set up connection timeout
+          const timeoutId = setTimeout(() => {
+            console.log('Connection timeout, trying next URL...');
+            this.cleanupExistingConnection();
+            
+            // Try next URL
+            this.currentUrlIndex++;
+            if (this.currentUrlIndex < this.urls.length) {
+              tryConnect();
+            } else {
+              this.currentUrlIndex = 0;
+              let errorMessage = 'Could not connect to AusweisApp2. Please make sure:';
+              errorMessage += '\n1. AusweisApp2 is running';
+              if (isSecureConnection) {
+                errorMessage += '\n2. WebSocket TLS is enabled in AusweisApp2 developer settings';
+                errorMessage += '\n3. You have accepted the self-signed certificate';
+                errorMessage += '\n\nTo enable WebSocket TLS:';
+                errorMessage += '\n1. Open AusweisApp2';
+                errorMessage += '\n2. Go to Settings > Developer Mode';
+                errorMessage += '\n3. Enable "Developer Mode"';
+                errorMessage += '\n4. Enable "WebSocket TLS"';
+                errorMessage += '\n5. Restart AusweisApp2';
               }
+              this.notifyStatusChange({
+                connected: false,
+                error: 'Connection Failed',
+                details: errorMessage
+              });
+              reject(new Error('Could not connect to AusweisApp2'));
             }
-          }, 3000); // Shorter timeout per URL
-
-          this.ws.onopen = async () => {
-            console.log('WebSocket connection opened');
-            clearTimeout(connectionTimeout);
+          }, 5000);
+          
+          this.ws.onopen = () => {
+            clearTimeout(timeoutId);
+            console.log('WebSocket connection established');
             this.notifyStatusChange({ connected: true });
-            try {
-              await this.getInfo();
-              console.log('Sent GET_INFO command');
-              resolve();
-            } catch (error) {
-              console.error('Error sending GET_INFO:', error);
-              reject(error);
-            }
+            resolve();
           };
-
-          this.ws.onmessage = (event) => {
-            try {
-              const message = JSON.parse(event.data) as AusweisMessage;
-              console.log('Received WebSocket message:', JSON.stringify(message, null, 2));
-              console.log('Received message:', message);
-              this.messageHandlers.forEach(handler => handler(message));
-            } catch (error) {
-              console.error('Error parsing WebSocket message:', error);
-              console.log('Raw message data:', event.data);
-            }
-          };
-
+          
           this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
-            clearTimeout(connectionTimeout);
-            // Don't handle the error here, let the timeout handle it
+            // Don't reject here, let the timeout handle it
           };
-
+          
           this.ws.onclose = (event) => {
             console.log('WebSocket connection closed:', event.code, event.reason);
-            clearTimeout(connectionTimeout);
-            this.ws = null;
-            this.messageHandlers = [];
             this.notifyStatusChange({
               connected: false,
-              error: 'Connection Closed',
-              details: event.reason || 'The connection to AusweisApp2 was closed.'
+              error: 'Connection closed',
+              details: event.reason || 'The connection to AusweisApp2 was closed'
             });
           };
+          
+          this.ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            this.handleMessage(msg);
+          };
         } catch (error) {
-          console.error('Error in connect():', error);
+          console.error('Failed to create WebSocket:', error);
+          clearTimeout(timeoutId);
           reject(error);
         }
       };
-
+      
       tryConnect();
     });
   }
