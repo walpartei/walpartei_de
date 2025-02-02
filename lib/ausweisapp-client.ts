@@ -10,17 +10,12 @@ export interface ConnectionStatus {
   details?: string;
 }
 
-declare const WebSocket: {
-  new (url: string, protocols?: string | string[], options?: { headers: { [key: string]: string } }): WebSocket;
-  prototype: WebSocket;
-  readonly CONNECTING: 0;
-  readonly OPEN: 1;
-  readonly CLOSING: 2;
-  readonly CLOSED: 3;
+declare const io: {
+  (url: string, options?: { path: string }): SocketIOClient.Socket;
 };
 
 export class AusweisAppClient {
-  private ws: WebSocket | null = null;
+  private socket: SocketIOClient.Socket | null = null;
   private messageHandlers: ((msg: AusweisMessage) => void)[] = [];
   private statusHandlers: ((status: ConnectionStatus) => void)[] = [];
   private isTestMode: boolean;
@@ -38,9 +33,9 @@ export class AusweisAppClient {
   }
 
   private getWebSocketUrls(): string[] {
-    // In production (HTTPS), use our secure WebSocket proxy
+    // In production (HTTPS), use our secure Socket.IO proxy
     if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-      const wsUrl = window.location.origin.replace('https://', 'wss://') + '/api/ausweisapp-proxy';
+      const wsUrl = window.location.origin + '/api/ausweisapp-proxy';
       return [wsUrl];
     }
 
@@ -72,15 +67,15 @@ export class AusweisAppClient {
   }
 
   private async cleanupExistingConnection(): Promise<void> {
-    if (this.ws) {
+    if (this.socket) {
       console.log('Cleaning up existing connection...');
       try {
         await this.cancel();
       } catch (e) {
         console.log('Error during cancel:', e);
       }
-      this.ws.close();
-      this.ws = null;
+      this.socket.disconnect();
+      this.socket = null;
       this.messageHandlers = [];
       // Wait a bit for the connection to fully close
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -95,7 +90,7 @@ export class AusweisAppClient {
     return new Promise((resolve, reject) => {
       const tryConnect = () => {
         const currentUrl = this.getCurrentUrl();
-        console.log(`Connecting to WebSocket (${this.currentUrlIndex + 1}/${this.urls.length}):`, currentUrl);
+        console.log(`Connecting to Socket.IO (${this.currentUrlIndex + 1}/${this.urls.length}):`, currentUrl);
         
         let timeoutId: NodeJS.Timeout | undefined;
 
@@ -104,18 +99,13 @@ export class AusweisAppClient {
             clearTimeout(timeoutId);
             timeoutId = undefined;
           }
-          if (this.ws) {
+          if (this.socket) {
             this.cleanupExistingConnection();
           }
         };
 
         try {
-          // Set User-Agent as required by the docs
-          this.ws = new WebSocket(currentUrl, [], {
-            headers: {
-              'User-Agent': 'Walpartei eID Client'
-            }
-          });
+          this.socket = io(currentUrl, { path: '/api/ausweisapp-proxy' });
           
           timeoutId = setTimeout(() => {
             console.log('Connection timeout, trying next URL...');
@@ -136,32 +126,30 @@ export class AusweisAppClient {
             }
           }, 5000);
           
-          this.ws.onopen = () => {
+          this.socket.on('connect', () => {
             cleanup();
-            console.log('WebSocket connection established');
+            console.log('Socket.IO connection established');
             this.notifyStatusChange({ connected: true });
             resolve();
-          };
+          });
           
-          this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
+          this.socket.on('error', (error) => {
+            console.error('Socket.IO error:', error);
             // Don't reject here, let the timeout handle it
-          };
+          });
           
-          this.ws.onclose = (event) => {
+          this.socket.on('disconnect', (reason) => {
             cleanup();
-            console.log('WebSocket connection closed:', event.code, event.reason);
+            console.log('Socket.IO connection closed:', reason);
 
             // Handle specific error codes from the docs
             let details = '';
-            if (event.code === 1006) {
+            if (reason === 'io server disconnect') {
               details = 'Connection failed - please check if AusweisApp2 is running';
-            } else if (event.code === 409) {
+            } else if (reason === 'transport close') {
               details = 'AusweisApp2 has an active workflow. Please close it and try again.';
-            } else if (event.code === 429) {
-              details = 'Another application is already connected to AusweisApp2';
             } else {
-              details = event.reason || 'The connection to AusweisApp2 was closed';
+              details = reason || 'The connection to AusweisApp2 was closed';
             }
 
             this.notifyStatusChange({
@@ -169,21 +157,21 @@ export class AusweisAppClient {
               error: 'Connection closed',
               details
             });
-          };
+          });
           
-          this.ws.onmessage = (event) => {
+          this.socket.on('message', (event) => {
             try {
-              const message = JSON.parse(event.data) as AusweisMessage;
-              console.log('Received WebSocket message:', JSON.stringify(message, null, 2));
+              const message = JSON.parse(event) as AusweisMessage;
+              console.log('Received Socket.IO message:', JSON.stringify(message, null, 2));
               console.log('Received message:', message);
               this.messageHandlers.forEach(handler => handler(message));
             } catch (error) {
-              console.error('Error parsing WebSocket message:', error);
-              console.log('Raw message data:', event.data);
+              console.error('Error parsing Socket.IO message:', error);
+              console.log('Raw message data:', event);
             }
-          };
+          });
         } catch (error) {
-          console.error('Failed to create WebSocket:', error);
+          console.error('Failed to create Socket.IO connection:', error);
           cleanup();
           reject(error);
         }
@@ -198,7 +186,7 @@ export class AusweisAppClient {
   }
 
   async send(message: AusweisMessage): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.socket || this.socket.disconnected) {
       throw new Error('Not connected to AusweisApp');
     }
 
@@ -210,8 +198,8 @@ export class AusweisAppClient {
           msg: message.msg || message.cmd
         };
         const messageStr = JSON.stringify(fullMessage);
-        console.log('Sending WebSocket message:', messageStr);
-        this.ws!.send(messageStr);
+        console.log('Sending Socket.IO message:', messageStr);
+        this.socket.emit('message', messageStr);
         resolve();
       } catch (error) {
         console.error('Error sending message:', error);
@@ -272,7 +260,7 @@ export class AusweisAppClient {
 
   async cancel(): Promise<void> {
     console.log('Cancelling current operation');
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.socket && !this.socket.disconnected) {
       await this.send({
         cmd: 'CANCEL',
         msg: 'CANCEL'
