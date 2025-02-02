@@ -30,24 +30,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // In production, this would:
-    // 1. Generate a TC token from your eID service provider
-    // 2. Start an authentication session
-    // 3. Return the TC token URL to the client
-    // 4. Client-side code would then handle the actual eID flow with AusweisApp2
-
-    if (!TEST_TC_TOKEN_URL) {
+    const tcTokenURL = process.env.NEXT_PUBLIC_TC_TOKEN_URL;
+    
+    if (!tcTokenURL) {
       throw new Error('TC_TOKEN_URL is not configured');
     }
 
     return res.status(200).json({
       success: true,
       data: {
-        tcTokenURL: TEST_TC_TOKEN_URL,
+        tcTokenURL
       },
     });
   } catch (error) {
     console.error('eID authentication error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ 
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error' 
+    });
   }
 }

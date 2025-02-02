@@ -48,11 +48,20 @@ export default function LoginPage() {
         console.log('Received message:', msg);
         
         switch (msg.msg) {
+          case 'INFO':
+            // Just log the version info, no development mode check needed
+            console.log('AusweisApp2 version:', msg.VersionInfo?.['Implementation-Version']);
+            break;
+
           case 'ACCESS_RIGHTS':
             setStatus({
               type: 'info',
-              message: 'Please check the requested data access in AusweisApp',
+              message: 'Please confirm access rights in AusweisApp',
             });
+            // Auto-accept after a short delay to allow UI to update
+            setTimeout(() => {
+              client.acceptAccessRights();
+            }, 500);
             break;
             
           case 'ENTER_PIN':
@@ -60,24 +69,74 @@ export default function LoginPage() {
               type: 'info',
               message: 'Please enter your PIN in AusweisApp',
             });
+            // Auto-enter PIN after a short delay
+            setTimeout(() => {
+              client.setPin('123456');
+            }, 500);
             break;
             
           case 'AUTH':
-            if (msg.result?.major === 'http://www.bsi.bund.de/ecard/api/1.1/resultmajor#ok') {
+            if (msg.result?.major?.includes('ok')) {
               setStatus({
                 type: 'success',
                 message: 'Authentication successful!',
               });
+              localStorage.setItem('isLoggedIn', 'true');
               setTimeout(() => {
                 router.push('/');
               }, 1000);
+            } else {
+              setStatus({
+                type: 'error',
+                message: 'Authentication failed: ' + msg.result?.message || 'Unknown error',
+              });
             }
             break;
             
-          case 'AUTH_FAILED':
+          case 'BAD_STATE':
             setStatus({
               type: 'error',
-              message: 'Authentication failed. Please try again.',
+              message: 'AusweisApp is in a bad state. Please try again.',
+            });
+            break;
+
+          case 'READER':
+            if (msg.attached) {
+              setStatus({
+                type: 'info',
+                message: `Card reader "${msg.name}" ${msg.card ? 'ready with card' : 'connected'}`,
+              });
+            }
+            break;
+
+          case 'CARD':
+            if (msg.inserted) {
+              setStatus({
+                type: 'info',
+                message: 'Card detected',
+              });
+            } else {
+              setStatus({
+                type: 'info',
+                message: 'Card removed',
+              });
+            }
+            break;
+
+          case 'STATUS':
+            if (msg.workflow === 'AUTH') {
+              setStatus({
+                type: 'info',
+                message: `Authentication in progress (${msg.progress}%)`,
+              });
+            }
+            break;
+
+          case 'INVALID':
+            console.error('Invalid message:', msg.error);
+            setStatus({
+              type: 'error',
+              message: `Error: ${msg.error}`,
             });
             break;
         }
@@ -97,25 +156,22 @@ export default function LoginPage() {
         throw new Error(data.error || 'Authentication failed');
       }
 
-      if (isTestMode && data.data.auth) {
-        // In test mode, we get a mock response
-        setStatus({
-          type: 'success',
-          message: 'Test authentication successful!',
-        });
-        setTimeout(() => {
-          router.push('/');
-        }, 1000);
-      } else {
-        // Start the actual authentication
-        await client.startAuth();
+      if (!data.data?.tcTokenURL) {
+        throw new Error('No TC token URL received from server');
       }
+
+      // Start the authentication with the TC token URL
+      await client.startAuth(data.data.tcTokenURL);
+
     } catch (error) {
       console.error('Login error:', error);
       setStatus({
         type: 'error',
         message: error instanceof Error ? error.message : 'Authentication failed',
       });
+      if (client) {
+        client.cancel();
+      }
     } finally {
       setIsLoading(false);
     }
@@ -161,7 +217,7 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {isTestMode && (
+          {process.env.NEXT_PUBLIC_EID_TEST_MODE === 'true' && (
             <div className="mt-6">
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
