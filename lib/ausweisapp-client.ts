@@ -11,7 +11,7 @@ export interface ConnectionStatus {
 }
 
 declare const WebSocket: {
-  new (url: string): WebSocket;
+  new (url: string, protocols?: string | string[], options?: { headers: { [key: string]: string } }): WebSocket;
   prototype: WebSocket;
   readonly CONNECTING: 0;
   readonly OPEN: 1;
@@ -38,21 +38,34 @@ export class AusweisAppClient {
   }
 
   private getWebSocketUrls(): string[] {
-    // AusweisApp2 uses TLS by default, so always use wss://
-    return [
-      'wss://127.0.0.1:24727/eID-Kernel',
-      'wss://localhost:24727/eID-Kernel'
+    // According to TR-03124-1, AusweisApp2 uses ws:// by default
+    // If we're on HTTPS, we need to inform the user about mixed content
+    const urls = [
+      'ws://localhost:24727/eID-Kernel',
+      'ws://127.0.0.1:24727/eID-Kernel'
     ];
+
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+      console.warn('Connecting to AusweisApp2 from HTTPS site - you may need to enable mixed content');
+    }
+
+    return urls;
   }
 
   private getConnectionInstructions(): string {
     let instructions = 'Could not connect to AusweisApp2. Please make sure:\n';
     instructions += '1. AusweisApp2 is running\n';
-    instructions += '2. Developer Mode is enabled in AusweisApp2 settings\n\n';
-    instructions += 'If you see certificate errors:\n';
-    instructions += '1. Open https://127.0.0.1:24727 in a new tab\n';
-    instructions += '2. Click "Advanced" and accept the self-signed certificate\n';
-    instructions += '3. Try connecting again';
+    instructions += '2. No other application is currently using AusweisApp2\n';
+    instructions += '3. There is no active workflow in AusweisApp2\n\n';
+
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+      instructions += 'Since you are connecting from a secure site (HTTPS), you need to:\n';
+      instructions += '1. Click the shield/lock icon in your browser\'s address bar\n';
+      instructions += '2. Allow insecure content from localhost\n';
+      instructions += '3. Reload the page\n\n';
+      instructions += 'This is necessary because AusweisApp2 uses an unencrypted WebSocket connection (ws://)';
+    }
+
     return instructions;
   }
 
@@ -107,7 +120,12 @@ export class AusweisAppClient {
         };
 
         try {
-          this.ws = new WebSocket(currentUrl);
+          // Set User-Agent as required by the docs
+          this.ws = new WebSocket(currentUrl, [], {
+            headers: {
+              'User-Agent': 'Walpartei eID Client'
+            }
+          });
           
           timeoutId = setTimeout(() => {
             console.log('Connection timeout, trying next URL...');
@@ -143,10 +161,23 @@ export class AusweisAppClient {
           this.ws.onclose = (event) => {
             cleanup();
             console.log('WebSocket connection closed:', event.code, event.reason);
+
+            // Handle specific error codes from the docs
+            let details = '';
+            if (event.code === 1006) {
+              details = 'Connection failed - please check if AusweisApp2 is running';
+            } else if (event.code === 409) {
+              details = 'AusweisApp2 has an active workflow. Please close it and try again.';
+            } else if (event.code === 429) {
+              details = 'Another application is already connected to AusweisApp2';
+            } else {
+              details = event.reason || 'The connection to AusweisApp2 was closed';
+            }
+
             this.notifyStatusChange({
               connected: false,
               error: 'Connection closed',
-              details: event.reason || 'The connection to AusweisApp2 was closed'
+              details
             });
           };
           
