@@ -19,12 +19,17 @@ export class AusweisAppClient {
   private isTestMode: boolean;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
+  private wsUrl: string;
 
-  constructor(
-    private url: string = process.env.NEXT_PUBLIC_AUSWEISAPP_WS_URL || 'ws://localhost:24727/eID-Kernel'
-  ) {
+  constructor() {
     this.isTestMode = process.env.NEXT_PUBLIC_EID_TEST_MODE === 'true';
-    console.log('AusweisAppClient initialized with URL:', url);
+    
+    // Determine WebSocket URL based on current protocol
+    const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    const defaultWsUrl = isSecure ? 'wss://127.0.0.1:24727/eID-Kernel' : 'ws://localhost:24727/eID-Kernel';
+    this.wsUrl = process.env.NEXT_PUBLIC_AUSWEISAPP_WS_URL || defaultWsUrl;
+    
+    console.log('AusweisAppClient initialized with URL:', this.wsUrl);
     console.log('Test mode:', this.isTestMode);
   }
 
@@ -50,7 +55,7 @@ export class AusweisAppClient {
     return new Promise((resolve, reject) => {
       try {
         console.log('Connecting to WebSocket...');
-        this.ws = new WebSocket(this.url);
+        this.ws = new WebSocket(this.wsUrl);
 
         const connectionTimeout = setTimeout(() => {
           if (this.ws?.readyState !== WebSocket.OPEN) {
