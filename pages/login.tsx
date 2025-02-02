@@ -1,23 +1,35 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { AusweisAppClient } from '@/lib/ausweisapp-client';
+import { AusweisAppClient, ConnectionStatus } from '@/lib/ausweisapp-client';
 
 interface StatusMessage {
   type: 'info' | 'error' | 'success';
   message: string;
+  details?: string;
 }
 
 export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<StatusMessage | null>(null);
-  const isTestMode = process.env.NEXT_PUBLIC_EID_TEST_MODE === 'true';
   const [client, setClient] = useState<AusweisAppClient | null>(null);
 
   useEffect(() => {
     const ausweisClient = new AusweisAppClient();
     setClient(ausweisClient);
+
+    // Handle connection status changes
+    ausweisClient.onStatusChange((status: ConnectionStatus) => {
+      if (!status.connected && status.error) {
+        setStatus({
+          type: 'error',
+          message: status.error,
+          details: status.details
+        });
+        setIsLoading(false);
+      }
+    });
 
     return () => {
       if (ausweisClient) {
@@ -49,7 +61,7 @@ export default function LoginPage() {
         
         switch (msg.msg) {
           case 'INFO':
-            // Just log the version info, no development mode check needed
+            // Just log the version info
             console.log('AusweisApp2 version:', msg.VersionInfo?.['Implementation-Version']);
             break;
 
@@ -132,6 +144,14 @@ export default function LoginPage() {
             }
             break;
 
+          case 'INSERT_CARD':
+            setStatus({
+              type: 'info',
+              message: 'Please insert your ID card',
+              details: 'Make sure your card reader is connected and the card is properly inserted.'
+            });
+            break;
+
           case 'INVALID':
             console.error('Invalid message:', msg.error);
             setStatus({
@@ -201,7 +221,10 @@ export default function LoginPage() {
               }`}
               role="alert"
             >
-              <span className="block sm:inline">{status.message}</span>
+              <span className="block sm:inline font-medium">{status.message}</span>
+              {status.details && (
+                <p className="mt-2 text-sm">{status.details}</p>
+              )}
             </div>
           )}
 
@@ -217,44 +240,32 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {process.env.NEXT_PUBLIC_EID_TEST_MODE === 'true' && (
-            <div className="mt-6">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">Development Mode Active</span>
-                </div>
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
               </div>
-
-              <div className="mt-6 text-sm">
-                <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded relative">
-                  <p className="font-medium">Test Environment Setup Required</p>
-                  <p className="mt-1">
-                    You need AusweisApp2 and PersoSim for testing. See the{' '}
-                    <Link
-                      href="/docs/EID_SETUP.md"
-                      className="font-medium text-yellow-700 underline hover:text-yellow-600"
-                    >
-                      setup guide
-                    </Link>{' '}
-                    for instructions.
-                  </p>
-                </div>
-
-                <div className="mt-4 space-y-2 text-gray-500">
-                  <p className="font-medium">Quick Setup:</p>
-                  <ol className="list-decimal pl-5 space-y-1">
-                    <li>Install and start AusweisApp2</li>
-                    <li>Enable Developer Mode in AusweisApp2</li>
-                    <li>Install and start PersoSim</li>
-                    <li>Use PIN: 123456 for test cards</li>
-                  </ol>
-                </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">Setup Instructions</span>
               </div>
             </div>
-          )}
+
+            <div className="mt-6 text-sm">
+              <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded relative">
+                <p className="font-medium">AusweisApp2 Setup Required</p>
+                <p className="mt-1">
+                  You need AusweisApp2 for authentication. Follow these steps:
+                </p>
+                <ol className="mt-2 list-decimal pl-5 space-y-1">
+                  <li>Install and start AusweisApp2</li>
+                  <li>Enable Developer Mode in AusweisApp2 settings</li>
+                  <li>Enable WebSocket TLS in developer settings (required for HTTPS)</li>
+                  <li>Enable Internal Simulator in developer settings</li>
+                  <li>Use PIN: 123456 for test cards</li>
+                </ol>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
