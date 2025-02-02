@@ -38,18 +38,22 @@ export class AusweisAppClient {
   }
 
   private getWebSocketUrls(): string[] {
-    const baseUrl = process.env.NEXT_PUBLIC_AUSWEISAPP_WS_URL || 'ws://127.0.0.1:24727/eID-Kernel';
-    
-    // If we're on HTTPS, we must use WSS
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-      return [
-        'wss://127.0.0.1:24727/eID-Kernel',
-        'wss://localhost:24727/eID-Kernel'
-      ];
-    }
-    
-    // In development or if URL is explicitly set, use the configured URL
-    return [baseUrl];
+    // AusweisApp2 uses TLS by default, so always use wss://
+    return [
+      'wss://127.0.0.1:24727/eID-Kernel',
+      'wss://localhost:24727/eID-Kernel'
+    ];
+  }
+
+  private getConnectionInstructions(): string {
+    let instructions = 'Could not connect to AusweisApp2. Please make sure:\n';
+    instructions += '1. AusweisApp2 is running\n';
+    instructions += '2. Developer Mode is enabled in AusweisApp2 settings\n\n';
+    instructions += 'If you see certificate errors:\n';
+    instructions += '1. Open https://127.0.0.1:24727 in a new tab\n';
+    instructions += '2. Click "Advanced" and accept the self-signed certificate\n';
+    instructions += '3. Try connecting again';
+    return instructions;
   }
 
   private notifyStatusChange(status: ConnectionStatus) {
@@ -88,7 +92,6 @@ export class AusweisAppClient {
     return new Promise((resolve, reject) => {
       const tryConnect = () => {
         const currentUrl = this.getCurrentUrl();
-        const isSecureConnection = currentUrl.startsWith('wss://');
         console.log(`Connecting to WebSocket (${this.currentUrlIndex + 1}/${this.urls.length}):`, currentUrl);
         
         let timeoutId: NodeJS.Timeout | undefined;
@@ -116,22 +119,10 @@ export class AusweisAppClient {
               tryConnect();
             } else {
               this.currentUrlIndex = 0;
-              let errorMessage = 'Could not connect to AusweisApp2. Please make sure:';
-              errorMessage += '\n1. AusweisApp2 is running';
-              if (isSecureConnection) {
-                errorMessage += '\n2. WebSocket TLS is enabled in AusweisApp2 developer settings';
-                errorMessage += '\n3. You have accepted the self-signed certificate';
-                errorMessage += '\n\nTo enable WebSocket TLS:';
-                errorMessage += '\n1. Open AusweisApp2';
-                errorMessage += '\n2. Go to Settings > Developer Mode';
-                errorMessage += '\n3. Enable "Developer Mode"';
-                errorMessage += '\n4. Enable "WebSocket TLS"';
-                errorMessage += '\n5. Restart AusweisApp2';
-              }
               this.notifyStatusChange({
                 connected: false,
                 error: 'Connection Failed',
-                details: errorMessage
+                details: this.getConnectionInstructions()
               });
               reject(new Error('Could not connect to AusweisApp2'));
             }
