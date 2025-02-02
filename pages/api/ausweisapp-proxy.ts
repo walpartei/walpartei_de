@@ -1,34 +1,22 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { WebSocketServer, WebSocket } from 'ws';
-import type { Server as HTTPServer } from 'http';
-import type { Socket } from 'net';
-
-interface SocketServer extends HTTPServer {
-  ws?: boolean;
-}
-
-interface ResponseWithSocket extends NextApiResponse {
-  socket: Socket & {
-    server: SocketServer;
-  };
-}
+import { NextRequest } from 'next/server';
 
 export const config = {
-  api: {
-    bodyParser: false,
-    externalResolver: true,
-  },
-  runtime: 'nodejs',
+  runtime: 'edge',
 };
 
-// Create WebSocket server instance
-const wss = new WebSocketServer({ noServer: true });
+export default async function handler(req: NextRequest) {
+  if (req.method !== 'GET') {
+    return new Response('Method not allowed', { status: 405 });
+  }
 
-// Handle WebSocket connections
-const handleConnection = async (socket: WebSocket) => {
-  console.log('Client connected to proxy');
-  
+  const upgradeHeader = req.headers.get('upgrade');
+  if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
+    return new Response('Expected WebSocket connection', { status: 426 });
+  }
+
   try {
+    const { socket: clientSocket, response } = Deno.upgradeWebSocket(req);
+    
     // Connect to local AusweisApp2
     const ausweisApp = new WebSocket('ws://localhost:24727/eID-Kernel', {
       headers: {
@@ -37,91 +25,50 @@ const handleConnection = async (socket: WebSocket) => {
     });
 
     // Forward messages from client to AusweisApp2
-    socket.addEventListener('message', async (event) => {
-      try {
-        console.log('Forwarding message to AusweisApp2');
-        if (ausweisApp.readyState === WebSocket.OPEN) {
-          await ausweisApp.send(event.data);
-        }
-      } catch (error) {
-        console.error('Error forwarding message to AusweisApp2:', error);
+    clientSocket.onmessage = (event) => {
+      console.log('Forwarding message to AusweisApp2');
+      if (ausweisApp.readyState === WebSocket.OPEN) {
+        ausweisApp.send(event.data);
       }
-    });
+    };
 
     // Forward messages from AusweisApp2 to client
-    ausweisApp.addEventListener('message', async (event) => {
-      try {
-        console.log('Forwarding message to client');
-        if (socket.readyState === WebSocket.OPEN) {
-          await socket.send(event.data);
-        }
-      } catch (error) {
-        console.error('Error forwarding message to client:', error);
+    ausweisApp.onmessage = (event) => {
+      console.log('Forwarding message to client');
+      if (clientSocket.readyState === WebSocket.OPEN) {
+        clientSocket.send(event.data);
       }
-    });
+    };
 
     // Handle client disconnect
-    socket.addEventListener('close', () => {
+    clientSocket.onclose = () => {
       console.log('Client disconnected');
       ausweisApp.close();
-    });
+    };
 
     // Handle AusweisApp2 disconnect
-    ausweisApp.addEventListener('close', () => {
+    ausweisApp.onclose = () => {
       console.log('AusweisApp2 disconnected');
-      socket.close();
-    });
+      clientSocket.close();
+    };
 
     // Handle errors
-    socket.addEventListener('error', (error) => {
+    clientSocket.onerror = (error) => {
       console.error('Client WebSocket error:', error);
-    });
+    };
 
-    ausweisApp.addEventListener('error', (error) => {
+    ausweisApp.onerror = (error) => {
       console.error('AusweisApp2 WebSocket error:', error);
-    });
+    };
 
     // Handle AusweisApp2 connection
-    ausweisApp.addEventListener('open', () => {
+    ausweisApp.onopen = () => {
       console.log('Connected to AusweisApp2');
-    });
+    };
+
+    return response;
   } catch (error) {
-    console.error('Error in handleConnection:', error);
-    socket.close();
-  }
-};
-
-// Export the request handler
-export default async function handler(
-  req: NextApiRequest,
-  res: ResponseWithSocket
-) {
-  if (req.method === 'GET') {
-    try {
-      if (!res.socket.server.ws) {
-        // Set up WebSocket server
-        const server = res.socket.server;
-        server.ws = true;
-
-        // Handle WebSocket upgrade
-        server.on('upgrade', (request, socket, head) => {
-          if (request.url === '/api/ausweisapp-proxy') {
-            wss.handleUpgrade(request, socket, head, (ws) => {
-              wss.emit('connection', ws);
-            });
-          }
-        });
-
-        // Handle new connections
-        wss.on('connection', handleConnection);
-      }
-
-      res.status(200).end();
-    } catch (error) {
-      console.error('Error in handler:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  } else {
-    res.status(405).json({ error: 'Method not allowed' });
+    console.error('Error in WebSocket handler:', error);
+    return new Response('Internal Server Error', { status: 500 });
   }
 }
