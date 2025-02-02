@@ -15,63 +15,25 @@ export default async function handler(req: NextRequest) {
   }
 
   try {
-    const { 0: client, 1: server } = new WebSocketPair();
-
-    // Connect to local AusweisApp2
-    const ausweisApp = new WebSocket('ws://localhost:24727/eID-Kernel', {
+    // Connect to AusweisApp2
+    const ausweisAppResponse = await fetch('ws://localhost:24727/eID-Kernel', {
       headers: {
+        'Upgrade': 'websocket',
+        'Connection': 'Upgrade',
+        'Sec-WebSocket-Version': '13',
+        'Sec-WebSocket-Key': req.headers.get('Sec-WebSocket-Key') || '',
         'User-Agent': 'Walpartei eID Client Proxy'
       }
     });
 
-    // Forward messages from client to AusweisApp2
-    client.onmessage = (event) => {
-      console.log('Forwarding message to AusweisApp2');
-      if (ausweisApp.readyState === WebSocket.OPEN) {
-        ausweisApp.send(event.data);
-      }
-    };
-
-    // Forward messages from AusweisApp2 to client
-    ausweisApp.onmessage = (event) => {
-      console.log('Forwarding message to client');
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(event.data);
-      }
-    };
-
-    // Handle client disconnect
-    client.onclose = () => {
-      console.log('Client disconnected');
-      ausweisApp.close();
-    };
-
-    // Handle AusweisApp2 disconnect
-    ausweisApp.onclose = () => {
-      console.log('AusweisApp2 disconnected');
-      client.close();
-    };
-
-    // Handle errors
-    client.onerror = (error) => {
-      console.error('Client WebSocket error:', error);
-    };
-
-    ausweisApp.onerror = (error) => {
-      console.error('AusweisApp2 WebSocket error:', error);
-    };
-
-    // Handle AusweisApp2 connection
-    ausweisApp.onopen = () => {
-      console.log('Connected to AusweisApp2');
-    };
-
+    // Forward the upgrade response
     return new Response(null, {
       status: 101,
       headers: {
         'Upgrade': 'websocket',
         'Connection': 'Upgrade',
-        'Sec-WebSocket-Accept': req.headers.get('Sec-WebSocket-Key') || ''
+        'Sec-WebSocket-Accept': ausweisAppResponse.headers.get('Sec-WebSocket-Accept') || '',
+        'Sec-WebSocket-Version': '13'
       }
     });
   } catch (error) {
