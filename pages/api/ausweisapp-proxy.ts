@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 export const config = {
   runtime: 'edge',
@@ -15,8 +15,8 @@ export default async function handler(req: NextRequest) {
   }
 
   try {
-    const { socket: clientSocket, response } = Deno.upgradeWebSocket(req);
-    
+    const { 0: client, 1: server } = new WebSocketPair();
+
     // Connect to local AusweisApp2
     const ausweisApp = new WebSocket('ws://localhost:24727/eID-Kernel', {
       headers: {
@@ -25,7 +25,7 @@ export default async function handler(req: NextRequest) {
     });
 
     // Forward messages from client to AusweisApp2
-    clientSocket.onmessage = (event) => {
+    client.onmessage = (event) => {
       console.log('Forwarding message to AusweisApp2');
       if (ausweisApp.readyState === WebSocket.OPEN) {
         ausweisApp.send(event.data);
@@ -35,13 +35,13 @@ export default async function handler(req: NextRequest) {
     // Forward messages from AusweisApp2 to client
     ausweisApp.onmessage = (event) => {
       console.log('Forwarding message to client');
-      if (clientSocket.readyState === WebSocket.OPEN) {
-        clientSocket.send(event.data);
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(event.data);
       }
     };
 
     // Handle client disconnect
-    clientSocket.onclose = () => {
+    client.onclose = () => {
       console.log('Client disconnected');
       ausweisApp.close();
     };
@@ -49,11 +49,11 @@ export default async function handler(req: NextRequest) {
     // Handle AusweisApp2 disconnect
     ausweisApp.onclose = () => {
       console.log('AusweisApp2 disconnected');
-      clientSocket.close();
+      client.close();
     };
 
     // Handle errors
-    clientSocket.onerror = (error) => {
+    client.onerror = (error) => {
       console.error('Client WebSocket error:', error);
     };
 
@@ -66,7 +66,14 @@ export default async function handler(req: NextRequest) {
       console.log('Connected to AusweisApp2');
     };
 
-    return response;
+    return new Response(null, {
+      status: 101,
+      headers: {
+        'Upgrade': 'websocket',
+        'Connection': 'Upgrade',
+        'Sec-WebSocket-Accept': req.headers.get('Sec-WebSocket-Key') || ''
+      }
+    });
   } catch (error) {
     console.error('Error in WebSocket handler:', error);
     return new Response('Internal Server Error', { status: 500 });
