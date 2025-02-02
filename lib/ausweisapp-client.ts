@@ -81,7 +81,9 @@ export class AusweisAppClient {
   }
 
   async connect(): Promise<void> {
-    await this.cleanupExistingConnection();
+    this.urls = this.getWebSocketUrls();
+    console.log('AusweisAppClient initialized with URLs:', this.urls);
+    console.log('Test mode:', this.isTestMode);
 
     return new Promise((resolve, reject) => {
       const tryConnect = () => {
@@ -89,13 +91,24 @@ export class AusweisAppClient {
         const isSecureConnection = currentUrl.startsWith('wss://');
         console.log(`Connecting to WebSocket (${this.currentUrlIndex + 1}/${this.urls.length}):`, currentUrl);
         
+        let timeoutId: NodeJS.Timeout | undefined;
+
+        const cleanup = () => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = undefined;
+          }
+          if (this.ws) {
+            this.cleanupExistingConnection();
+          }
+        };
+
         try {
           this.ws = new WebSocket(currentUrl);
           
-          // Set up connection timeout
-          const timeoutId = setTimeout(() => {
+          timeoutId = setTimeout(() => {
             console.log('Connection timeout, trying next URL...');
-            this.cleanupExistingConnection();
+            cleanup();
             
             // Try next URL
             this.currentUrlIndex++;
@@ -125,7 +138,7 @@ export class AusweisAppClient {
           }, 5000);
           
           this.ws.onopen = () => {
-            clearTimeout(timeoutId);
+            cleanup();
             console.log('WebSocket connection established');
             this.notifyStatusChange({ connected: true });
             resolve();
@@ -137,6 +150,7 @@ export class AusweisAppClient {
           };
           
           this.ws.onclose = (event) => {
+            cleanup();
             console.log('WebSocket connection closed:', event.code, event.reason);
             this.notifyStatusChange({
               connected: false,
@@ -158,7 +172,7 @@ export class AusweisAppClient {
           };
         } catch (error) {
           console.error('Failed to create WebSocket:', error);
-          clearTimeout(timeoutId);
+          cleanup();
           reject(error);
         }
       };
